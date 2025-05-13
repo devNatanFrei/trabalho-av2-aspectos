@@ -1,224 +1,196 @@
+# Classe para representar um token
 class Token:
-    def __init__(self, value, category):
-        self.value = value
+    def __init__(self, category, value):
         self.category = category
+        self.value = value
 
-def analyze_syntax(token_list, current_pos=0):
-    """Analisa a sintaxe de um programa completo, esperando comandos e um 'END' no final."""
-    current_pos = process_commands(token_list, current_pos)
-    if current_pos < len(token_list) and token_list[current_pos].value == 'END':
-        current_pos += 1
+# Lista de palavras-chave da linguagem
+reserved_words = ['END', 'LET', 'GO', 'TO', 'OF', 'READ', 'PRINT', 'IF', 'THEN', 'ELSE']
+
+# Função do analisador léxico
+def tokenize(input_string):
+    token_collection = []
+    index = 0
+    while index < len(input_string):
+        char = input_string[index]
+        if char.isspace():
+            index += 1
+            continue
+        elif char.isalpha():
+            word = ''
+            while index < len(input_string) and input_string[index].isalnum():
+                word += input_string[index]
+                index += 1
+            if word.upper() in reserved_words:
+                token_collection.append(Token('keyword', word.upper()))
+            else:
+                token_collection.append(Token('ide', word))
+        elif char.isdigit():
+            number = ''
+            while index < len(input_string) and input_string[index].isdigit():
+                number += input_string[index]
+                index += 1
+            token_collection.append(Token('num', number))
+        elif char == ':':
+            if index + 1 < len(input_string) and input_string[index + 1] == '=':
+                token_collection.append(Token('operator', ':='))
+                index += 2
+            else:
+                token_collection.append(Token('punctuation', ':'))
+                index += 1
+        elif char == '>':
+            if index + 1 < len(input_string) and input_string[index + 1] == '=':
+                token_collection.append(Token('operator', '>='))
+                index += 2
+            else:
+                token_collection.append(Token('operator', '>'))
+                index += 1
+        elif char in ['=', '<', '+', '-', '*', '/']:
+            token_collection.append(Token('operator', char))
+            index += 1
+        elif char in [';', ',', '(', ')']:
+            token_collection.append(Token('punctuation', char))
+            index += 1
+        else:
+            print(f"Error: invalid character '{char}'")
+            index += 1
+    return token_collection
+
+# Variáveis globais para o parser
+tokens = []
+position = 0
+
+# Função para processar expressões aritméticas
+def expression():
+    global position
+    factor()  # Processa o primeiro fator
+    while position < len(tokens) and tokens[position].category == 'operator' and tokens[position].value in ['+', '-', '*', '/']:
+        op = tokens[position].value
+        position += 1
+        factor()
+        if op in ['*', '/']:  # Prioridade de multiplicação/divisão é tratada implicitamente
+            continue
+
+def factor():
+    global position
+    if position >= len(tokens):
+        print("Error: expected identifier, number, or '('")
+        return
+    current_token = tokens[position]
+    if current_token.category in ['ide', 'num']:
+        position += 1
+    elif current_token.category == 'punctuation' and current_token.value == '(':
+        position += 1
+        expression()
+        if position < len(tokens) and tokens[position].category == 'punctuation' and tokens[position].value == ')':
+            position += 1
+        else:
+            print("Error: expected ')'")
     else:
-        print(f"Erro de Sintaxe: Esperado 'END' na posição {current_pos}")
-    if current_pos < len(token_list):
-        print(f"Erro de Sintaxe: Tokens extras após 'END' na posição {current_pos}")
-    return current_pos
+        print("Error: expected identifier, number, or '('")
 
-def process_commands(token_list, current_pos):
-    """Processa uma sequência de comandos separados por ';'."""
-    while current_pos < len(token_list) and token_list[current_pos].value != 'END':
-        current_pos = handle_command(token_list, current_pos)
-        if current_pos < len(token_list) and token_list[current_pos].value == ';':
-            current_pos += 1
+# Função para processar sequência de comandos
+def command_sequence():
+    global position
+    while position < len(tokens) and (tokens[position].category != 'keyword' or tokens[position].value != 'END'):
+        command()
+        if position < len(tokens) and tokens[position].category == 'punctuation' and tokens[position].value == ';':
+            position += 1
         else:
             break
-    return current_pos
 
-def handle_command(token_list, current_pos):
-    """Analisa um comando individual, como atribuição, leitura ou condicional."""
-    if current_pos >= len(token_list) or token_list[current_pos].value == 'END':
-        return current_pos
-    current_token = token_list[current_pos]
-    if current_token.value == 'LET':
-        current_pos = process_assignment(token_list, current_pos)
-    elif current_token.value == 'GO':
-        current_pos = process_goto(token_list, current_pos)
-    elif current_token.value == 'READ':
-        current_pos = process_read(token_list, current_pos)
-    elif current_token.value == 'PRINT':
-        current_pos = process_print(token_list, current_pos)
-    elif current_token.value == 'IF':
-        current_pos = process_conditional(token_list, current_pos)
-    elif current_token.category == 'ide' and current_pos + 1 < len(token_list) and token_list[current_pos + 1].value == ':':
-        current_pos = process_label(token_list, current_pos)
-        current_pos += 1  # consome o ':'
-        current_pos = handle_command(token_list, current_pos)
-    else:
-        return current_pos
-    return current_pos
-
-def process_assignment(token_list, current_pos):
-    """Analisa uma atribuição do tipo: LET identificador := expressão."""
-    if token_list[current_pos].value == 'LET':
-        current_pos += 1
-        current_pos = check_identifier(token_list, current_pos)
-        if current_pos < len(token_list) and token_list[current_pos].value == ':=':
-            current_pos += 1
-            current_pos = evaluate_expression(token_list, current_pos)
-        else:
-            print(f"Erro de Sintaxe: Esperado ':=' na posição {current_pos}")
-    return current_pos
-
-def evaluate_expression(token_list, current_pos):
-    """Avalia uma expressão composta por termos e operadores."""
-    current_pos = process_term(token_list, current_pos)
-    current_pos = extend_expression(token_list, current_pos)
-    return current_pos
-
-def extend_expression(token_list, current_pos):
-    """Analisa a continuação de uma expressão com '+' ou '-'."""
-    if current_pos < len(token_list) and token_list[current_pos].value in ['+', '-']:
-        current_pos += 1
-        current_pos = process_term(token_list, current_pos)
-        current_pos = extend_expression(token_list, current_pos)
-    return current_pos
-
-def process_term(token_list, current_pos):
-    """Processa um termo, que pode incluir fatores e multiplicação/divisão."""
-    current_pos = process_factor(token_list, current_pos)
-    current_pos = extend_term(token_list, current_pos)
-    return current_pos
-
-def extend_term(token_list, current_pos):
-    """Analisa a continuação de um termo com '*' ou '/'."""
-    if current_pos < len(token_list) and token_list[current_pos].value in ['*', '/']:
-        current_pos += 1
-        current_pos = process_factor(token_list, current_pos)
-        current_pos = extend_term(token_list, current_pos)
-    return current_pos
-
-def process_factor(token_list, current_pos):
-    """Analisa um fator: identificador, número ou expressão entre parênteses."""
-    if current_pos < len(token_list):
-        if token_list[current_pos].category == 'ide':
-            current_pos = check_identifier(token_list, current_pos)
-        elif token_list[current_pos].category == 'num':
-            current_pos = check_number(token_list, current_pos)
-        elif token_list[current_pos].value == '(':
-            current_pos += 1
-            current_pos = evaluate_expression(token_list, current_pos)
-            if current_pos < len(token_list) and token_list[current_pos].value == ')':
-                current_pos += 1
-            else:
-                print(f"Erro de Sintaxe: Esperado ')' na posição {current_pos}")
-        else:
-            print(f"Erro de Sintaxe: Esperado identificador, número ou '(' na posição {current_pos}")
-    return current_pos
-
-def process_goto(token_list, current_pos):
-    """Analisa um comando GO TO: rótulo ou número seguido de lista de rótulos."""
-    if token_list[current_pos].value == 'GO':
-        current_pos += 1
-        if token_list[current_pos].value == 'TO':
-            current_pos += 1
-            if token_list[current_pos].category == 'ide':
-                current_pos = process_label(token_list, current_pos)
-            elif token_list[current_pos].category == 'num':
-                current_pos = check_number(token_list, current_pos)
-                if token_list[current_pos].value == 'OF':
-                    current_pos += 1
-                    current_pos = process_label_sequence(token_list, current_pos)
+# Função para processar comandos
+def command():
+    global position
+    if position >= len(tokens):
+        return
+    current_token = tokens[position]
+    if current_token.category == 'keyword':
+        if current_token.value == 'LET':
+            position += 1
+            if position < len(tokens) and tokens[position].category == 'ide':
+                position += 1
+                if position < len(tokens) and tokens[position].category == 'operator' and tokens[position].value == ':=':
+                    position += 1
+                    expression()
                 else:
-                    print(f"Erro de Sintaxe: Esperado 'OF' na posição {current_pos}")
-    return current_pos
-
-def process_label_sequence(token_list, current_pos):
-    """Analisa uma sequência de rótulos separados por vírgulas."""
-    current_pos = process_label(token_list, current_pos)
-    while current_pos < len(token_list) and token_list[current_pos].value == ',':
-        current_pos += 1
-        current_pos = process_label(token_list, current_pos)
-    return current_pos
-
-def process_label(token_list, current_pos):
-    """Verifica se o token é um rótulo válido (identificador)."""
-    return check_identifier(token_list, current_pos)
-
-def process_read(token_list, current_pos):
-    """Analisa um comando READ seguido de uma lista de identificadores."""
-    if token_list[current_pos].value == 'READ':
-        current_pos += 1
-        current_pos = process_identifier_list(token_list, current_pos)
-    return current_pos
-
-def process_identifier_list(token_list, current_pos):
-    """Analisa uma lista de identificadores separados por vírgulas."""
-    current_pos = check_identifier(token_list, current_pos)
-    while current_pos < len(token_list) and token_list[current_pos].value == ',':
-        current_pos += 1
-        current_pos = check_identifier(token_list, current_pos)
-    return current_pos
-
-def process_print(token_list, current_pos):
-    """Analisa um comando PRINT seguido de uma lista de expressões."""
-    if token_list[current_pos].value == 'PRINT':
-        current_pos += 1
-        current_pos = process_expression_list(token_list, current_pos)
-    return current_pos
-
-def process_expression_list(token_list, current_pos):
-    """Analisa uma lista de expressões separadas por vírgulas."""
-    current_pos = evaluate_expression(token_list, current_pos)
-    while current_pos < len(token_list) and token_list[current_pos].value == ',':
-        current_pos += 1
-        current_pos = evaluate_expression(token_list, current_pos)
-    return current_pos
-
-def process_conditional(token_list, current_pos):
-    """Analisa um comando IF com comparação, THEN e ELSE."""
-    if token_list[current_pos].value == 'IF':
-        current_pos += 1
-        current_pos = check_comparison(token_list, current_pos)
-        if token_list[current_pos].value == 'THEN':
-            current_pos += 1
-            current_pos = handle_command(token_list, current_pos)
-            if token_list[current_pos].value == 'ELSE':
-                current_pos += 1
-                current_pos = handle_command(token_list, current_pos)
+                    print("Error: expected ':='")
             else:
-                print(f"Erro de Sintaxe: Esperado 'ELSE' na posição {current_pos}")
-    return current_pos
-
-def check_comparison(token_list, current_pos):
-    """Analisa uma comparação entre duas expressões."""
-    current_pos = evaluate_expression(token_list, current_pos)
-    current_pos = check_operator(token_list, current_pos)
-    current_pos = evaluate_expression(token_list, current_pos)
-    return current_pos
-
-def check_operator(token_list, current_pos):
-    """Verifica se o token é um operador de comparação válido."""
-    if token_list[current_pos].value in ['=', '>', '>=', '<']:
-        current_pos += 1
-    else:
-        print(f"Erro de Sintaxe: Operador de comparação inválido na posição {current_pos}")
-    return current_pos
-
-def check_identifier(token_list, current_pos):
-    """Verifica se o token é um identificador válido."""
-    if current_pos < len(token_list) and token_list[current_pos].category == 'ide':
-        current_pos += 1
-    else:
-        print(f"Erro de Sintaxe: Esperado identificador na posição {current_pos}")
-    return current_pos
-
-def check_number(token_list, current_pos):
-    """Verifica se o token é um número válido."""
-    if current_pos < len(token_list) and token_list[current_pos].category == 'num':
-        current_pos += 1
-    else:
-        print(f"Erro de Sintaxe: Esperado número na posição {current_pos}")
-    return current_pos
+                print("Error: expected identifier")
+        elif current_token.value == 'GO':
+            position += 1
+            if position < len(tokens) and tokens[position].category == 'keyword' and tokens[position].value == 'TO':
+                position += 1
+                if position < len(tokens):
+                    if tokens[position].category == 'ide':
+                        position += 1
+                    elif tokens[position].category == 'num':
+                        position += 1
+                        if position < len(tokens) and tokens[position].category == 'keyword' and tokens[position].value == 'OF':
+                            position += 1
+                            while position < len(tokens) and tokens[position].category == 'ide':
+                                position += 1
+                                if position < len(tokens) and tokens[position].category == 'punctuation' and tokens[position].value == ',':
+                                    position += 1
+                                else:
+                                    break
+                        else:
+                            print("Error: expected 'OF'")
+                    else:
+                        print("Error: expected identifier or number")
+                else:
+                    print("Error: expected identifier or number")
+            else:
+                print("Error: expected 'TO'")
+        elif current_token.value == 'READ':
+            position += 1
+            while position < len(tokens) and tokens[position].category == 'ide':
+                position += 1
+                if position < len(tokens) and tokens[position].category == 'punctuation' and tokens[position].value == ',':
+                    position += 1
+                else:
+                    break
+            if position >= len(tokens) or tokens[position-1].category != 'ide':
+                print("Error: expected identifier")
+        elif current_token.value == 'PRINT':
+            position += 1
+            expression()
+            while position < len(tokens) and tokens[position].category == 'punctuation' and tokens[position].value == ',':
+                position += 1
+                expression()
+        elif current_token.value == 'IF':
+            position += 1
+            expression()
+            if position < len(tokens) and tokens[position].category == 'operator' and tokens[position].value in ['=', '>', '>=', '<']:
+                position += 1
+                expression()
+                if position < len(tokens) and tokens[position].category == 'keyword' and tokens[position].value == 'THEN':
+                    position += 1
+                    command()
+                    if position < len(tokens) and tokens[position].category == 'keyword' and tokens[position].value == 'ELSE':
+                        position += 1
+                        command()
+                    else:
+                        print("Error: expected 'ELSE'")
+                else:
+                    print("Error: expected 'THEN'")
+            else:
+                print("Error: expected comparison operator")
+    elif current_token.category == 'ide' and position + 1 < len(tokens) and tokens[position + 1].category == 'punctuation' and tokens[position + 1].value == ':':
+        position += 2  # Consome rótulo e ':'
+        command()
 
 # Teste do analisador
 if __name__ == "__main__":
-    example_tokens = [
-        Token('LET', 'keyword'), Token('x', 'ide'), Token(':=', 'operator'),
-        Token('1', 'num'), Token('+', 'operator'), Token('2', 'num'), Token(';', 'punctuation'),
-        Token('END', 'keyword')
-    ]
-    final_position = analyze_syntax(example_tokens)
-    if final_position == len(example_tokens):
-        print("Análise concluída com sucesso!")
+    sample_input = "LET A := 1 + 2; PRINT A; END"
+    tokens = tokenize(sample_input)
+    position = 0
+    command_sequence()
+    if position < len(tokens) and tokens[position].category == 'keyword' and tokens[position].value == 'END':
+        position += 1
+        if position == len(tokens):
+            print("Análise sintática bem-sucedida")
+        else:
+            print("Erro na análise sintática: tokens extras")
     else:
-        print("Falha na análise sintática.")
+        print("Erro na análise sintática: esperado 'END'")
