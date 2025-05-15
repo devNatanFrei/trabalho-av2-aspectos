@@ -1,259 +1,185 @@
 import re
-import sys # Para usar sys.exit() que é mais comum em Python do que exit(1)
+import sys
 
 class Token:
-    def __init__(self, type, value):
-        self.type = type
-        self.value = value
+    def __init__(self, tipo, valor):
+        self.tipo = tipo
+        self.valor = valor
 
     def __repr__(self):
-        return f"Token({self.type}, '{self.value}')"
+        return f"Token({self.tipo}, '{self.valor}')"
 
-class LexerError(Exception):
+class ErroLexico(Exception):
     pass
 
-class ParseError(Exception):
+class ErroSintatico(Exception):
     pass
 
-class SingleFileParser:
+class AnalisadorSintaticoArquivoUnico:
     def __init__(self):
-        self.token_specs = [
-            ("NUMBER",     r'\d+'),
-            ("IDENTIFIER", r'[A-Z][A-Z0-9]*'),
-            ("ASSIGN",     r':='),
-            ("PLUS",       r'\+'),
-            ("MINUS",      r'-'),
-            ("STAR",       r'\*'),
-            ("SLASH",      r'/'),
-            ("EQ",         r'='),
-            ("GT",         r'>'),
-            ("LT",         r'<'),
-            ("LPAREN",     r'\('),
-            ("RPAREN",     r'\)'),
-            ("SEMI",       r';'),
-            ("COLON",      r':'),
-            ("COMMA",      r','),
-            ("WHITESPACE", r'\s+'),
+        self.especificacoes_token = [
+            ("NUMERO", r'\d+'),
+            ("IDENTIFICADOR", r'[A-Z][A-Z0-9]*'),
+            ("ATRIBUICAO_OP", r':='),
+            ("MAIS", r'\+'),
+            ("MENOS", r'-'),
+            ("ASTERISCO", r'\*'),
+            ("BARRA", r'/'),
+            ("IGUAL", r'='),
+            ("MAIOR_QUE", r'>'),
+            ("MENOR_QUE", r'<'),
+            ("PARENTESE_ESQ", r'\('),
+            ("PARENTESE_DIR", r'\)'),
+            ("PONTO_VIRGULA", r';'),
+            ("DOIS_PONTOS", r':'),
+            ("VIRGULA", r','),
+            ("ESPACO_BRANCO", r'\s+'),
         ]
-        self.keywords = {"LET", "GO", "TO", "READ", "PRINT", "IF", "THEN", "ELSE", "END"}
+        self.palavras_chave = {"LET", "GO", "TO", "OF", "READ", "PRINT", "IF", "THEN", "ELSE", "END"}
         self.tokens = []
-        self.current_pos = 0
+        self.posicao_atual = 0
 
-    def _tokenize(self, input_string):
-        generated_tokens = []
-        current_input_pos = 0
-        input_length = len(input_string)
-
-        while current_input_pos < input_length:
+    def _tokenizar(self, codigo_entrada):
+        tokens = []
+        pos = 0
+        while pos < len(codigo_entrada):
             matched = False
-            for token_type, pattern_str in self.token_specs:
-                pattern = re.compile(pattern_str)
-                match = pattern.match(input_string, current_input_pos)
+            for tipo, padrao in self.especificacoes_token:
+                regex = re.compile(padrao)
+                match = regex.match(codigo_entrada, pos)
                 if match:
-                    text = match.group(0)
-                    if token_type == "IDENTIFIER":
-                        if text in self.keywords:
-                            generated_tokens.append(Token(text, text))
-                        else:
-                            generated_tokens.append(Token("IDENTIFIER", text))
-                    elif token_type != "WHITESPACE":
-                        generated_tokens.append(Token(token_type, text))
-                    
-                    current_input_pos = match.end(0)
+                    texto = match.group(0)
+                    if tipo == "IDENTIFICADOR" and texto in self.palavras_chave:
+                        tokens.append(Token(texto, texto))
+                    elif tipo != "ESPACO_BRANCO":
+                        tokens.append(Token(tipo, texto))
+                    pos = match.end()
                     matched = True
                     break
             if not matched:
-                raise LexerError(f"Caractere inválido na posição {current_input_pos}: '{input_string[current_input_pos]}'")
-        return generated_tokens
+                raise ErroLexico(f"Caractere inválido na posição {pos}: '{codigo_entrada[pos]}'")
+        return tokens
 
-    def _current_token(self):
-        if self.current_pos < len(self.tokens):
-            return self.tokens[self.current_pos]
+    def analisar(self, codigo_entrada):
+        self.tokens = self._tokenizar(codigo_entrada)
+        self.posicao_atual = 0
+        self._programa()
+        if self._peek():
+            raise ErroSintatico("Tokens extras após o final do programa")
+        print("Análise concluída com sucesso!")
+
+    def _peek(self):
+        return self.tokens[self.posicao_atual] if self.posicao_atual < len(self.tokens) else None
+
+    def _eat(self, tipo):
+        if self._peek() and self._peek().tipo == tipo:
+            tok = self._peek()
+            self.posicao_atual += 1
+            return tok
         return None
 
-    def _match_token(self, expected_type):
-        token = self._current_token()
-        if token and token.type == expected_type:
-            self.current_pos += 1
-            return True
-        return False
+    def _expect(self, tipo):
+        tok = self._eat(tipo)
+        if not tok:
+            raise ErroSintatico(f"Esperado token {tipo}, mas obteve {self._peek()}")
+        return tok
 
-    def _error(self, message):
-        token_info = ""
-        if self._current_token():
-            token_info = f" (próximo token: {self._current_token()})"
-        raise ParseError(f"Erro: {message}{token_info} na posição do token {self.current_pos}.")
+    
+    def _programa(self):
+        self._sequencia_de_comandos()
+        self._expect("END")  
 
-    def parse(self, input_code):
-        self.tokens = self._tokenize(input_code)
-        self.current_pos = 0
-        self._parse_programa()
+   
+    def _sequencia_de_comandos(self):
+        self._envoltura_comando()
+        while self._eat("PONTO_VIRGULA"):
+            if self._peek() and self._peek().tipo == "END":
+                raise ErroSintatico("Ponto e vírgula antes de END não permitido")
+            self._envoltura_comando()
 
-    def _parse_programa(self):
-        self._parse_sequencia_de_comandos()
-        if not self._match_token("END"):
-            self._error("Esperado 'END' no final do programa")
-        if self._current_token() is not None:
-            self._error("Tokens extras após 'END'")
+ 
+    def _envoltura_comando(self):
+        if self._peek() and self._peek().tipo == "IDENTIFICADOR" and self.tokens[self.posicao_atual+1].tipo == "DOIS_PONTOS":
+            self._eat("IDENTIFICADOR")
+            self._eat("DOIS_PONTOS")
+        self._comando()
 
-    def _parse_sequencia_de_comandos(self):
-        self._parse_comando()
-        self._parse_sequencia_de_comandos_linha()
 
-    def _parse_sequencia_de_comandos_linha(self):
-        token = self._current_token()
-        if token and token.type == "SEMI":
-            self._match_token("SEMI")
-            self._parse_comando()
-            self._parse_sequencia_de_comandos_linha()
-
-    def _parse_comando(self):
-        token = self._current_token()
-        if token is None:
+    def _comando(self):
+        tok = self._peek()
+        if not tok:
+            raise ErroSintatico("Comando esperado, mas fim inesperado")
+        if tok.tipo == "LET":
+            self._eat("LET"); self._eat("IDENTIFICADOR"); self._eat("ATRIBUICAO_OP"); self._expressao()
+        elif tok.tipo == "GO":
+            self._eat("GO"); self._eat("TO"); self._eat("IDENTIFICADOR");
+            if self._eat("OF"): self._lista_de_rotulos()
+        elif tok.tipo == "READ":
+            self._eat("READ"); self._lista_de_identificadores()
+        elif tok.tipo == "PRINT":
+            self._eat("PRINT"); self._lista_de_expressoes()
+        elif tok.tipo == "IF":
+            self._eat("IF"); self._comparacao(); self._eat("THEN"); self._envoltura_comando(); self._eat("ELSE"); self._envoltura_comando()
+        elif tok.tipo in {"END", "ELSE", "PONTO_VIRGULA"}:
             return
-
-        if token.type == "LET":
-            self._parse_atribuicao()
-        elif token.type == "GO":
-            self._parse_desvio()
-        elif token.type == "READ":
-            self._parse_leitura()
-        elif token.type == "PRINT":
-            self._parse_impressao()
-        elif token.type == "IF":
-            self._parse_decisao()
-        elif token.type == "IDENTIFIER" and \
-             self.current_pos + 1 < len(self.tokens) and \
-             self.tokens[self.current_pos + 1].type == "COLON":
-            self._match_token("IDENTIFIER")
-            self._match_token("COLON")
-            self._parse_comando()
-        elif token.type in {"END", "ELSE", "THEN", "SEMI"}:
-            pass
         else:
-            # Se não for um comando conhecido e a regra chamadora espera um,
-            # o erro será pego pela falha em `_match_token` na regra chamadora.
-            pass
+            raise ErroSintatico(f"Token inesperado {tok}")
 
 
-    def _parse_atribuicao(self):
-        if not self._match_token("LET"): self._error("Esperado 'LET' para atribuição")
-        if not self._match_token("IDENTIFIER"): self._error("Esperado identificador após 'LET'")
-        if not self._match_token("ASSIGN"): self._error("Esperado ':=' após identificador na atribuição")
-        self._parse_expressao()
+    def _expressao(self):
+        self._termo()
+        while self._peek() and self._peek().tipo in {"MAIS","MENOS"}:
+            self._eat(self._peek().tipo)
+            self._termo()
 
-    def _parse_expressao(self):
-        self._parse_termo()
-        self._parse_expressao_linha()
 
-    def _parse_expressao_linha(self):
-        token = self._current_token()
-        if token:
-            if token.type == "PLUS":
-                self._match_token("PLUS")
-                self._parse_termo()
-                self._parse_expressao_linha()
-            elif token.type == "MINUS":
-                self._match_token("MINUS")
-                self._parse_termo()
-                self._parse_expressao_linha()
+    def _termo(self):
+        self._fator()
+        while self._peek() and self._peek().tipo in {"ASTERISCO","BARRA"}:
+            self._eat(self._peek().tipo)
+            self._fator()
 
-    def _parse_termo(self):
-        self._parse_fator()
-        self._parse_termo_linha()
 
-    def _parse_termo_linha(self):
-        token = self._current_token()
-        if token:
-            if token.type == "STAR":
-                self._match_token("STAR")
-                self._parse_fator()
-                self._parse_termo_linha()
-            elif token.type == "SLASH":
-                self._match_token("SLASH")
-                self._parse_fator()
-                self._parse_termo_linha()
+    def _fator(self):
+        if self._eat("IDENTIFICADOR"):
+            return
+        if self._eat("NUMERO"):
+            return
+        if self._eat("PARENTESE_ESQ"):
+            self._expressao(); self._eat("PARENTESE_DIR"); return
+        if self._eat("END"):
+            return
+        raise ErroSintatico(f"Fator inválido: {self._peek()}")
 
-    def _parse_fator(self):
-        if self._match_token("IDENTIFIER"): pass
-        elif self._match_token("NUMBER"): pass
-        elif self._match_token("LPAREN"):
-            self._parse_expressao()
-            if not self._match_token("RPAREN"): self._error("Esperado ')' após expressão em parênteses")
-        else:
-            self._error("Fator inválido: esperado identificador, número ou '('")
 
-    def _parse_desvio(self):
-        if not self._match_token("GO"): self._error("Esperado 'GO' para desvio")
-        if not self._match_token("TO"): self._error("Esperado 'TO' após 'GO'")
-        if not self._match_token("IDENTIFIER"): self._error("Esperado identificador (rótulo) após 'GO TO'")
+    def _lista_de_rotulos(self):
+        self._eat("IDENTIFICADOR")
+        while self._eat("VIRGULA"): self._eat("IDENTIFICADOR")
 
-    def _parse_leitura(self):
-        if not self._match_token("READ"): self._error("Esperado 'READ'")
-        self._parse_lista_de_identificadores()
+   
+    def _lista_de_identificadores(self):
+        if self._peek() and self._peek().tipo == "IDENTIFICADOR":
+            self._eat("IDENTIFICADOR")
+            while self._eat("VIRGULA"): self._eat("IDENTIFICADOR")
 
-    def _parse_lista_de_identificadores(self):
-        token = self._current_token()
-        if token and token.type == "IDENTIFIER":
-            self._match_token("IDENTIFIER")
-            while self._current_token() and self._current_token().type == "COMMA":
-                self._match_token("COMMA")
-                if not self._match_token("IDENTIFIER"):
-                    self._error("Esperado identificador após vírgula na lista de leitura")
+    
+    def _lista_de_expressoes(self):
+        if self._peek() and self._peek().tipo in {"IDENTIFICADOR","NUMERO","PARENTESE_ESQ","END"}:
+            self._expressao()
+            while self._eat("VIRGULA"): self._expressao()
 
-    def _parse_impressao(self):
-        if not self._match_token("PRINT"): self._error("Esperado 'PRINT'")
-        self._parse_lista_de_expressoes()
-
-    def _parse_lista_de_expressoes(self):
-        token = self._current_token()
-        expr_start_tokens = {"IDENTIFIER", "NUMBER", "LPAREN"}
-
-        if token and token.type in expr_start_tokens:
-            self._parse_expressao()
-            while self._current_token() and self._current_token().type == "COMMA":
-                self._match_token("COMMA")
-                next_token_for_expr = self._current_token()
-                if not (next_token_for_expr and next_token_for_expr.type in expr_start_tokens):
-                     self._error("Esperada expressão após vírgula na lista de impressão")
-                self._parse_expressao()
-
-    def _parse_decisao(self):
-        if not self._match_token("IF"): self._error("Esperado 'IF'")
-        self._parse_comparacao()
-        if not self._match_token("THEN"): self._error("Esperado 'THEN' após comparação")
-
-        if self._current_token() and self._current_token().type == "ELSE":
-            self._error("Comando esperado após 'THEN' e antes de 'ELSE'")
-        self._parse_comando()
-        
-        if not self._match_token("ELSE"): self._error("Esperado 'ELSE' após comando da cláusula 'THEN'")
-        self._parse_comando()
-
-    def _parse_comparacao(self):
-        self._parse_expressao()
-        op_token = self._current_token()
-        if op_token and op_token.type in {"EQ", "GT", "LT"}:
-            self._match_token(op_token.type)
-        else:
-            self._error("Esperado operador de comparação ('=', '>', '<')")
-        self._parse_expressao()
+ 
+    def _comparacao(self):
+        self._expressao()
+        if not self._eat("IGUAL") and not self._eat("MAIOR_QUE") and not self._eat("MENOR_QUE"):
+            raise ErroSintatico(f"Operador de comparação esperado: {self._peek()}")
+        self._expressao()
 
 if __name__ == "__main__":
-    input_code = input("Digite o código: ")
-    sfp = SingleFileParser()
-
+    codigo = input("Digite o código: ")
+    analisador = AnalisadorSintaticoArquivoUnico()
     try:
-        sfp.parse(input_code)
-        print("Análise concluída com sucesso!")
-    except LexerError as e:
-        print(f"Erro Léxico: {e}")
-        sys.exit(1)
-    except ParseError as e:
-        print(f"Erro Sintático: {e}")
-        sys.exit(1)
+        analisador.analisar(codigo)
     except Exception as e:
-        print(f"Erro inesperado: {e}")
-        import traceback
-        traceback.print_exc()
+        print(e)
         sys.exit(1)
